@@ -42,6 +42,7 @@ type Config struct {
 	HTTPTimeout        time.Duration // Defaults to 10s
 	AuthToken          string        // Bearer token for authentication
 	SpoolDir           string        // Directory for spooling failed batches (empty = disabled)
+	RecoveryInterval   time.Duration // Time between spool recovery attempts, defaults to 5m
 }
 
 // Client is a client for sending audit events to the audit service
@@ -57,6 +58,7 @@ type Client struct {
 	wg                 sync.WaitGroup
 	batchSize          int
 	batchInterval      time.Duration
+	recoveryInterval   time.Duration
 	authToken          string
 	spoolDir           string
 
@@ -120,6 +122,11 @@ func NewClient(cfg Config) *Client {
 		batchInterval = 1 * time.Second
 	}
 
+	recoveryInterval := cfg.RecoveryInterval
+	if recoveryInterval <= 0 {
+		recoveryInterval = 5 * time.Minute
+	}
+
 	timeout := cfg.HTTPTimeout
 	if timeout <= 0 {
 		timeout = DefaultHTTPTimeout
@@ -150,6 +157,7 @@ func NewClient(cfg Config) *Client {
 		quit:               make(chan struct{}),
 		batchSize:          batchSize,
 		batchInterval:      batchInterval,
+		recoveryInterval:   recoveryInterval,
 		authToken:          cfg.AuthToken,
 		spoolDir:           cfg.SpoolDir,
 	}
@@ -160,11 +168,18 @@ func NewClient(cfg Config) *Client {
 		go c.worker()
 	}
 
+	// Start spool recovery worker if spooling is enabled
+	if c.spoolDir != "" {
+		c.wg.Add(1)
+		go c.recoveryWorker()
+	}
+
 	slog.Info("Audit client initialized with async workers and batching",
 		"baseURL", cfg.BaseURL,
 		"workers", workerCount,
 		"batchSize", batchSize,
 		"batchInterval", batchInterval,
+		"recoveryInterval", recoveryInterval,
 		"queueSize", queueSize,
 		"spoolDir", cfg.SpoolDir)
 
@@ -376,9 +391,6 @@ func (c *Client) logBatch(parentCtx context.Context, events []*AuditLogRequest) 
 		return
 	}
 
-	// For now, we'll use a new bulk endpoint if it exists, or just loop if not.
-	// But the requirement says "send to the server in bulk rather than via individual HTTP requests".
-	// So I should implement the bulk endpoint on the server.
 	payloadBytes, err := json.Marshal(events)
 	if err != nil {
 		slog.Error("Failed to marshal audit batch", "error", err)
@@ -388,7 +400,6 @@ func (c *Client) logBatch(parentCtx context.Context, events []*AuditLogRequest) 
 	var lastErr error
 	backoff := InitialBackoff
 
-	targetURL := c.baseURL + "/api/audit-logs/bulk"
 	for attempt := 0; attempt <= MaxRetries; attempt++ {
 		if attempt > 0 {
 			slog.Info("Retrying audit batch send", "attempt", attempt, "backoff", backoff)
@@ -404,43 +415,116 @@ func (c *Client) logBatch(parentCtx context.Context, events []*AuditLogRequest) 
 
 		// Create a timeout context for this specific attempt to avoid timeout context exhaustion
 		attemptCtx, attemptCancel := context.WithTimeout(parentCtx, c.httpClient.Timeout)
+		lastErr = c.sendPayload(attemptCtx, payloadBytes)
+		attemptCancel()
 
-		req, err := http.NewRequestWithContext(attemptCtx, "POST", targetURL, strings.NewReader(string(payloadBytes)))
-		if err != nil {
-			attemptCancel()
-			slog.Error("Failed to create audit request", "error", err)
+		if lastErr == nil {
+			slog.Info("Audit batch logged successfully", "count", len(events))
 			return
 		}
 
-		req.Header.Set("Content-Type", "application/json")
-		if c.authToken != "" {
-			req.Header.Set("Authorization", "Bearer "+c.authToken)
-		}
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			attemptCancel()
-			lastErr = err
-			slog.Warn("Failed to send audit batch", "error", err, "attempt", attempt)
-			continue
-		}
-
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		attemptCancel()
-
-		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusMultiStatus {
-			lastErr = fmt.Errorf("server returned %d: %s", resp.StatusCode, string(bodyBytes))
-			slog.Warn("Audit service returned error for batch", "status", resp.StatusCode, "body", string(bodyBytes), "attempt", attempt)
-			continue
-		}
-
-		slog.Info("Audit batch logged successfully", "count", len(events), "status", resp.StatusCode)
-		return
+		slog.Warn("Failed to send audit batch", "error", lastErr, "attempt", attempt)
 	}
 
 	slog.Error("Audit batch failed after maximum retries", "error", lastErr, "count", len(events))
 	c.spoolToDisk(payloadBytes)
+}
+
+// sendPayload performs the actual HTTP request to the audit service.
+func (c *Client) sendPayload(ctx context.Context, payloadBytes []byte) error {
+	targetURL := c.baseURL + "/api/audit-logs/bulk"
+	req, err := http.NewRequestWithContext(ctx, "POST", targetURL, strings.NewReader(string(payloadBytes)))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if c.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusMultiStatus {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("server returned %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return nil
+}
+
+// recoveryWorker periodically checks the spool directory and attempts to re-send spooled logs.
+func (c *Client) recoveryWorker() {
+	defer c.wg.Done()
+
+	ticker := time.NewTicker(c.recoveryInterval)
+	defer ticker.Stop()
+
+	// Initial run after a short delay
+	time.AfterFunc(10*time.Second, func() {
+		c.recoverSpooledLogs()
+	})
+
+	for {
+		select {
+		case <-ticker.C:
+			c.recoverSpooledLogs()
+		case <-c.quit:
+			return
+		}
+	}
+}
+
+func (c *Client) recoverSpooledLogs() {
+	if c.spoolDir == "" {
+		return
+	}
+
+	entries, err := os.ReadDir(c.spoolDir)
+	if err != nil {
+		slog.Error("Failed to read spool directory", "dir", c.spoolDir, "error", err)
+		return
+	}
+
+	for _, entry := range entries {
+		// Check if we are shutting down
+		select {
+		case <-c.quit:
+			return
+		default:
+		}
+
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "argus-spool-") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(c.spoolDir, entry.Name())
+		payloadBytes, err := os.ReadFile(path)
+		if err != nil {
+			slog.Error("Failed to read spool file", "path", path, "error", err)
+			continue
+		}
+
+		slog.Info("Attempting to recover spooled audit logs", "path", path, "bytes", len(payloadBytes))
+
+		// Use a background context with timeout for recovery attempts
+		ctx, cancel := context.WithTimeout(context.Background(), c.httpClient.Timeout)
+		err = c.sendPayload(ctx, payloadBytes)
+		cancel()
+
+		if err == nil {
+			slog.Info("Successfully recovered spooled audit logs", "path", path)
+			if err := os.Remove(path); err != nil {
+				slog.Error("Failed to remove processed spool file", "path", path, "error", err)
+			}
+		} else {
+			slog.Warn("Failed to recover spooled audit logs, will retry later", "path", path, "error", err)
+		}
+	}
 }
 
 // spoolToDisk writes a failed batch payload to the spool directory as a fallback

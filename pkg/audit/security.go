@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // SignPayloadFunc is a strategy for signing payloads.
@@ -61,18 +62,22 @@ func CanonicalizeRequest(event *AuditLogRequest) ([]byte, error) {
 		metadataJSON = string(metaBytes)
 	}
 
+	escape := func(s string) string {
+		return strings.ReplaceAll(s, "|", "\\|")
+	}
+
 	canonical := fmt.Sprintf("%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s",
-		traceID,
-		event.Timestamp,
-		event.EventType,
-		event.Action,
-		event.Status,
-		event.ActorType,
-		event.ActorID,
-		event.TargetType,
-		targetID,
-		msgEncoded,
-		metadataJSON,
+		escape(traceID),
+		escape(event.Timestamp),
+		escape(event.EventType),
+		escape(event.Action),
+		escape(event.Status),
+		escape(event.ActorType),
+		escape(event.ActorID),
+		escape(event.TargetType),
+		escape(targetID),
+		escape(msgEncoded),
+		escape(metadataJSON),
 	)
 
 	return []byte(canonical), nil

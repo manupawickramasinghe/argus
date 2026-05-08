@@ -335,33 +335,15 @@ func (s *AuditService) GetAuditSummary(ctx context.Context) (*v1models.AuditSumm
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
-	filters := &database.AuditLogFilters{
-		StartTime: &startOfDay,
-		EndTime:   &endOfDay,
-		Limit:     database.MaxLimit,
-	}
-
-	logs, _, err := s.reader.GetAuditLogs(ctx, filters)
+	items, err := s.reader.GetAuditSummary(ctx, startOfDay, endOfDay)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch logs for summary: %w", err)
+		return nil, fmt.Errorf("failed to fetch summary: %w", err)
 	}
 
 	summary := &v1models.AuditSummaryResponse{
 		Date:            now.Format("2006-01-02"),
 		Summary:         fmt.Sprintf("Audit activity report for %s", now.Format("January 02, 2006")),
-		RuntimeActivity: make([]v1models.AuditSummaryItem, 0, len(logs)),
-	}
-
-	for _, log := range logs {
-		summary.RuntimeActivity = append(summary.RuntimeActivity, v1models.AuditSummaryItem{
-			Actor:     log.ActorID,
-			ActorType: log.ActorType,
-			Action:    log.Action,
-			EventType: log.EventType,
-			Status:    log.Status,
-			Timestamp: log.Timestamp,
-			ID:        log.ID,
-		})
+		RuntimeActivity: items,
 	}
 
 	return summary, nil

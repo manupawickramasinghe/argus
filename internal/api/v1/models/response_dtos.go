@@ -85,7 +85,8 @@ type AuditSummaryItem struct {
 	EventType string    `json:"eventType"`
 	Status    string    `json:"status"`
 	Timestamp time.Time `json:"timestamp"`
-	ID        uuid.UUID `json:"id"`
+	ID        uuid.UUID `json:"id,omitempty"`
+	Count     int       `json:"count"`
 }
 
 // BatchResult represents the result of a batch audit log creation.

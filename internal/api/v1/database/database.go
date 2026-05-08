@@ -25,6 +25,9 @@ type AuditReader interface {
 
 	// GetAuditLogByID retrieves a single audit log entry by its ID
 	GetAuditLogByID(ctx context.Context, id uuid.UUID) (*models.AuditLog, error)
+
+	// GetAuditSummary retrieves summary of audit logs
+	GetAuditSummary(ctx context.Context, startTime, endTime time.Time) ([]models.AuditSummaryItem, error)
 }
 
 // AuditLogFilters represents query filters for retrieving audit logs

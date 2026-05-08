@@ -183,3 +183,8 @@ func (m *MockRepository) GetLogs() []*v1models.AuditLog {
 func (m *MockRepository) ClearLogs() {
 	m.logs = make([]*v1models.AuditLog, 0)
 }
+
+func (m *MockRepository) GetAuditSummary(ctx context.Context, startTime, endTime time.Time) ([]v1models.AuditSummaryItem, error) {
+	// Not fully implemented for mock
+	return []v1models.AuditSummaryItem{}, nil
+}

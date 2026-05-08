@@ -4,8 +4,9 @@ services:
   argus:
     build: .
     ports:
-      - "3001:3001"
+      - "3003:3001"
     environment:
+      - DB_TYPE=postgres
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_USERNAME=user

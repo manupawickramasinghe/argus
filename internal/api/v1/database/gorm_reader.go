@@ -85,3 +85,14 @@ func (r *GormReader) GetAuditLogsByTraceID(ctx context.Context, traceID string) 
 	}
 	return logs, nil
 }
+
+func (r *GormReader) GetAuditSummary(ctx context.Context, startTime, endTime time.Time) ([]models.AuditSummaryItem, error) {
+	var summary []models.AuditSummaryItem
+	err := r.db.WithContext(ctx).
+		Model(&models.AuditLog{}).
+		Select("actor_id as actor, actor_type, action, event_type, status, max(timestamp) as timestamp, count(id) as count").
+		Where("timestamp >= ? AND timestamp < ?", startTime, endTime).
+		Group("actor_id, actor_type, action, event_type, status").
+		Find(&summary).Error
+	return summary, err
+}

@@ -33,6 +33,10 @@ type AuditLogFilters struct {
 	EventType      *string
 	Action         *string
 	Status         *string
+	ActorID        *string
+	ActorType      *string
+	TargetID       *string
+	TargetType     *string
 	StartTime      *time.Time
 	EndTime        *time.Time
 	Limit          int

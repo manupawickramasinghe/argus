@@ -263,15 +263,7 @@ func (s *AuditService) CreateAuditLogBatch(ctx context.Context, batchReq v1model
 }
 
 // GetAuditLogs retrieves audit logs with optional filtering
-func (s *AuditService) GetAuditLogs(ctx context.Context, traceID *string, eventType *string, limit, offset int, includeMessage bool) ([]v1models.AuditLog, int64, error) {
-	filters := &database.AuditLogFilters{
-		TraceID:        traceID,
-		EventType:      eventType,
-		Limit:          limit,
-		Offset:         offset,
-		IncludeMessage: includeMessage,
-	}
-
+func (s *AuditService) GetAuditLogs(ctx context.Context, filters *database.AuditLogFilters) ([]v1models.AuditLog, int64, error) {
 	return s.reader.GetAuditLogs(ctx, filters)
 }
 

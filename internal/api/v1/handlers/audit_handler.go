@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/LSFLK/argus/internal/api/v1/database"
 	"github.com/LSFLK/argus/internal/api/v1/models"
@@ -119,6 +120,14 @@ func (h *AuditHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters
 	traceID := r.URL.Query().Get("traceId")
 	eventType := r.URL.Query().Get("eventType")
+	action := r.URL.Query().Get("action")
+	status := r.URL.Query().Get("status")
+	actorID := r.URL.Query().Get("actorId")
+	actorType := r.URL.Query().Get("actorType")
+	targetID := r.URL.Query().Get("targetId")
+	targetType := r.URL.Query().Get("targetType")
+	startTimeStr := r.URL.Query().Get("startTime")
+	endTimeStr := r.URL.Query().Get("endTime")
 	limitStr := r.URL.Query().Get("limit")
 	offsetStr := r.URL.Query().Get("offset")
 	includeMessageStr := r.URL.Query().Get("includeMessage")
@@ -145,23 +154,62 @@ func (h *AuditHandler) GetAuditLogs(w http.ResponseWriter, r *http.Request) {
 		includeMessage = true
 	}
 
+	filters := &database.AuditLogFilters{
+		Limit:          limit,
+		Offset:         offset,
+		IncludeMessage: includeMessage,
+	}
+
 	// Validate traceId format if provided
-	var traceIDPtr *string
 	if traceID != "" {
 		// Validate UUID format - return 400 for invalid format instead of 500
 		if _, err := uuid.Parse(traceID); err != nil {
 			utils.RespondWithError(w, http.StatusBadRequest, "Invalid traceId format: expected UUID", err)
 			return
 		}
-		traceIDPtr = &traceID
+		filters.TraceID = &traceID
 	}
 
-	var eventTypePtr *string
 	if eventType != "" {
-		eventTypePtr = &eventType
+		filters.EventType = &eventType
+	}
+	if action != "" {
+		filters.Action = &action
+	}
+	if status != "" {
+		filters.Status = &status
+	}
+	if actorID != "" {
+		filters.ActorID = &actorID
+	}
+	if actorType != "" {
+		filters.ActorType = &actorType
+	}
+	if targetID != "" {
+		filters.TargetID = &targetID
+	}
+	if targetType != "" {
+		filters.TargetType = &targetType
 	}
 
-	logs, total, err := h.service.GetAuditLogs(r.Context(), traceIDPtr, eventTypePtr, limit, offset, includeMessage)
+	if startTimeStr != "" {
+		t, err := time.Parse(time.RFC3339, startTimeStr)
+		if err != nil {
+			utils.RespondWithError(w, http.StatusBadRequest, "Invalid startTime format: expected RFC3339", err)
+			return
+		}
+		filters.StartTime = &t
+	}
+	if endTimeStr != "" {
+		t, err := time.Parse(time.RFC3339, endTimeStr)
+		if err != nil {
+			utils.RespondWithError(w, http.StatusBadRequest, "Invalid endTime format: expected RFC3339", err)
+			return
+		}
+		filters.EndTime = &t
+	}
+
+	logs, total, err := h.service.GetAuditLogs(r.Context(), filters)
 	if err != nil {
 		// Check if it's a validation error (e.g. invalid traceId format from service layer)
 		if services.IsValidationError(err) {

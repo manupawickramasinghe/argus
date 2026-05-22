@@ -142,3 +142,51 @@ func TestAuditEnums_Validation(t *testing.T) {
 		t.Error("Empty event action should be valid (nullable)")
 	}
 }
+
+func TestAuditEnums_IsValidEventType(t *testing.T) {
+	enums := &AuditEnums{
+		EventTypes: []string{"VALID_EVENT_1", "VALID_EVENT_2"},
+	}
+	enums.InitializeMaps()
+
+	tests := []struct {
+		name      string
+		eventType string
+		expected  bool
+	}{
+		{
+			name:      "valid event type 1",
+			eventType: "VALID_EVENT_1",
+			expected:  true,
+		},
+		{
+			name:      "valid event type 2",
+			eventType: "VALID_EVENT_2",
+			expected:  true,
+		},
+		{
+			name:      "invalid event type",
+			eventType: "INVALID_EVENT",
+			expected:  false,
+		},
+		{
+			name:      "empty event type is allowed (nullable)",
+			eventType: "",
+			expected:  true,
+		},
+		{
+			name:      "case sensitive mismatch",
+			eventType: "valid_event_1",
+			expected:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := enums.IsValidEventType(tt.eventType)
+			if result != tt.expected {
+				t.Errorf("IsValidEventType(%q) = %v; expected %v", tt.eventType, result, tt.expected)
+			}
+		})
+	}
+}

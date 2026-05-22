@@ -1,0 +1,22 @@
+<<<<<<< SEARCH
+		{
+			name:      "invalid event type",
+			eventType: "INVALID_EVENT",
+			expected:  false,
+		},
+		{
+			name:      "empty event type is allowed (nullable)",
+			eventType: "",
+			expected:  true,
+		},
+		{
+			name:      "case sensitive mismatch",
+=======
+		{
+			name:      "invalid event type",
+			eventType: "INVALID_EVENT",
+			expected:  false,
+		},
+		{
+			name:      "case sensitive mismatch",
+>>>>>>> REPLACE

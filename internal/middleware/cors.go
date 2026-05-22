@@ -55,7 +55,7 @@ func CORSMiddleware(config CORSConfig) func(http.Handler) http.Handler {
 			// Check if the origin is allowed
 			var allowedOrigin string
 			for _, allowedOrig := range config.AllowedOrigins {
-				if allowedOrig == "*" || allowedOrig == origin {
+				if allowedOrig == origin || (allowedOrig == "*" && !config.AllowCredentials) {
 					allowedOrigin = allowedOrig
 					break
 				}
@@ -67,13 +67,7 @@ func CORSMiddleware(config CORSConfig) func(http.Handler) http.Handler {
 				w.Header().Add("Vary", "Origin")
 
 				// Set CORS headers
-				if allowedOrigin == "*" && config.AllowCredentials {
-					// Security fix: Cannot use wildcard with credentials
-					// If credentials are required, we must reflect the actual origin
-					if origin != "" {
-						w.Header().Set("Access-Control-Allow-Origin", origin)
-					}
-				} else if allowedOrigin == "*" {
+				if allowedOrigin == "*" {
 					w.Header().Set("Access-Control-Allow-Origin", "*")
 				} else {
 					w.Header().Set("Access-Control-Allow-Origin", origin)

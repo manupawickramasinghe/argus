@@ -1,0 +1,121 @@
+package middleware
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestAuthMiddleware(t *testing.T) {
+	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	t.Run("No Configured Token", func(t *testing.T) {
+		// Ensure environment variable is unset
+		os.Unsetenv("ARGUS_AUTH_TOKEN")
+
+		middleware := AuthMiddleware(dummyHandler)
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		w := httptest.NewRecorder()
+
+		middleware.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, w.Body.String(), "Server authentication is not configured")
+	})
+
+	t.Run("Missing Authorization Header", func(t *testing.T) {
+		t.Setenv("ARGUS_AUTH_TOKEN", "secret-token")
+
+		middleware := AuthMiddleware(dummyHandler)
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		w := httptest.NewRecorder()
+
+		middleware.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, w.Body.String(), "Missing Authorization header")
+	})
+
+	t.Run("Invalid Authorization Header Format - No Bearer", func(t *testing.T) {
+		t.Setenv("ARGUS_AUTH_TOKEN", "secret-token")
+
+		middleware := AuthMiddleware(dummyHandler)
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Header.Set("Authorization", "secret-token")
+		w := httptest.NewRecorder()
+
+		middleware.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, w.Body.String(), "Invalid Authorization header format")
+	})
+
+	t.Run("Invalid Authorization Header Format - Basic Auth", func(t *testing.T) {
+		t.Setenv("ARGUS_AUTH_TOKEN", "secret-token")
+
+		middleware := AuthMiddleware(dummyHandler)
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Header.Set("Authorization", "Basic c2VjcmV0LXRva2Vu")
+		w := httptest.NewRecorder()
+
+		middleware.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, w.Body.String(), "Invalid Authorization header format")
+	})
+
+	t.Run("Invalid Authorization Header Format - Extra Spaces", func(t *testing.T) {
+		t.Setenv("ARGUS_AUTH_TOKEN", "secret-token")
+
+		middleware := AuthMiddleware(dummyHandler)
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Header.Set("Authorization", "Bearer secret token")
+		w := httptest.NewRecorder()
+
+		middleware.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, w.Body.String(), "Invalid Authorization header format")
+	})
+
+	t.Run("Invalid Token Value", func(t *testing.T) {
+		t.Setenv("ARGUS_AUTH_TOKEN", "secret-token")
+
+		middleware := AuthMiddleware(dummyHandler)
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Header.Set("Authorization", "Bearer wrong-token")
+		w := httptest.NewRecorder()
+
+		middleware.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+		assert.Contains(t, w.Body.String(), "Invalid token")
+	})
+
+	t.Run("Valid Token", func(t *testing.T) {
+		t.Setenv("ARGUS_AUTH_TOKEN", "secret-token")
+
+		middleware := AuthMiddleware(dummyHandler)
+
+		req := httptest.NewRequest("GET", "/test", nil)
+		req.Header.Set("Authorization", "Bearer secret-token")
+		w := httptest.NewRecorder()
+
+		middleware.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "OK", w.Body.String())
+	})
+}

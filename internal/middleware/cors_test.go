@@ -107,8 +107,9 @@ func TestCORSMiddleware(t *testing.T) {
 
 		handler.ServeHTTP(w, req)
 
-		// Should reflect the actual origin when credentials are required
-		assert.Equal(t, "http://example.com", w.Header().Get("Access-Control-Allow-Origin"))
+		// Should not reflect actual origin, should return * and no allow credentials
+		assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
+		assert.Empty(t, w.Header().Get("Access-Control-Allow-Credentials"))
 	})
 
 	t.Run("PreflightRequest", func(t *testing.T) {

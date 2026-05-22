@@ -270,6 +270,16 @@ func (m *Manager) Close() []error {
 	return errs
 }
 
+// isCriticalSink checks if a sink with the given name is critical.
+func (m *Manager) isCriticalSink(name string) bool {
+	for _, s := range m.sinks {
+		if s.Name() == name && s.IsCritical() {
+			return true
+		}
+	}
+	return false
+}
+
 // HasCriticalFailure returns true if any of the provided errors originated from a critical sink.
 func (m *Manager) HasCriticalFailure(errs []error) bool {
 	for _, err := range errs {
@@ -277,12 +287,8 @@ func (m *Manager) HasCriticalFailure(errs []error) bool {
 			continue
 		}
 		var sinkErr *SinkError
-		if errors.As(err, &sinkErr) {
-			for _, s := range m.sinks {
-				if s.Name() == sinkErr.SinkName && s.IsCritical() {
-					return true
-				}
-			}
+		if errors.As(err, &sinkErr) && m.isCriticalSink(sinkErr.SinkName) {
+			return true
 		}
 	}
 	return false

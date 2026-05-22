@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -308,4 +309,74 @@ func TestAuditService_CreateAuditLog_InvalidTraceID(t *testing.T) {
 	_, err := service.CreateAuditLog(context.Background(), req)
 	assert.Error(t, err)
 	assert.True(t, IsValidationError(err))
+}
+
+func TestAuditService_GetAuditSummary(t *testing.T) {
+	mockRepo := v1testutil.NewMockRepository()
+	mgr := pipeline.NewManager(nil, mockRepo)
+	service := NewAuditService(mgr, mockRepo, nil)
+	ctx := context.Background()
+
+	// Insert some test logs for the current day
+	now := time.Now().UTC()
+	logs := []*v1models.AuditLog{
+		{
+			ID:        uuid.New(),
+			Timestamp: now,
+			ActorID:   "actor-1",
+			ActorType: "SERVICE",
+			Action:    "CREATE",
+			EventType: "RESOURCE_EVENT",
+			Status:    v1models.StatusSuccess,
+		},
+		{
+			ID:        uuid.New(),
+			Timestamp: now,
+			ActorID:   "actor-2",
+			ActorType: "USER",
+			Action:    "DELETE",
+			EventType: "RESOURCE_EVENT",
+			Status:    v1models.StatusFailure,
+		},
+	}
+
+	for _, log := range logs {
+		_ = mockRepo.Write(ctx, log)
+	}
+
+	t.Run("Success", func(t *testing.T) {
+		summary, err := service.GetAuditSummary(ctx)
+		require.NoError(t, err)
+		assert.NotNil(t, summary)
+		assert.Equal(t, now.Format("2006-01-02"), summary.Date)
+		assert.Contains(t, summary.Summary, now.Format("January 02, 2006"))
+
+		// 2 logs created today
+		assert.Len(t, summary.RuntimeActivity, 2)
+
+		// Logs order might be sorted by timestamp depending on the mock,
+		// but let's just check the properties are correctly populated
+		foundActor1 := false
+		for _, item := range summary.RuntimeActivity {
+			if item.Actor == "actor-1" {
+				foundActor1 = true
+				assert.Equal(t, "SERVICE", item.ActorType)
+				assert.Equal(t, "CREATE", item.Action)
+				assert.Equal(t, "RESOURCE_EVENT", item.EventType)
+				assert.Equal(t, v1models.StatusSuccess, item.Status)
+			}
+		}
+		assert.True(t, foundActor1, "Expected to find actor-1 in the summary")
+	})
+
+	t.Run("Failure_GetAuditLogsError", func(t *testing.T) {
+		mockRepo.InjectError = errors.New("database connection failed")
+		defer func() { mockRepo.InjectError = nil }()
+
+		summary, err := service.GetAuditSummary(ctx)
+		require.Error(t, err)
+		assert.Nil(t, summary)
+		assert.Contains(t, err.Error(), "failed to fetch logs for summary")
+		assert.Contains(t, err.Error(), "database connection failed")
+	})
 }

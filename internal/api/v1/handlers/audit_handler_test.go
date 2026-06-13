@@ -17,6 +17,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewAuditHandler(t *testing.T) {
+	mockRepo := v1testutil.NewMockRepository()
+	mgr := pipeline.NewManager(nil, mockRepo)
+	service := v1services.NewAuditService(mgr, mockRepo, nil)
+
+	handler := NewAuditHandler(service)
+
+	assert.NotNil(t, handler)
+	assert.Equal(t, service, handler.service)
+}
+
 func TestAuditHandler_CreateAuditLog(t *testing.T) {
 	v1testutil.SetupTestEnums()
 

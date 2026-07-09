@@ -9,5 +9,5 @@
 -- This index also benefits the actor-partitioned hash chain verification queries
 -- used during non-repudiation audits.
 
-CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_created
-    ON audit_logs (actor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_actor_created
+    ON audit_events (actor_id, created_at DESC);

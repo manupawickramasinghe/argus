@@ -12,7 +12,8 @@ import (
 
 // MockRepository implements both sinks.Sink and database.AuditReader for testing.
 type MockRepository struct {
-	logs []*v1models.AuditLog
+	logs        []*v1models.AuditLog
+	InjectError error
 }
 
 // NewMockRepository creates a new MockRepository instance.
@@ -90,6 +91,10 @@ func (m *MockRepository) GetAuditLogsByTraceID(ctx context.Context, traceID stri
 
 // GetAuditLogs retrieves audit logs with optional filtering (implements database.AuditReader).
 func (m *MockRepository) GetAuditLogs(ctx context.Context, filters *database.AuditLogFilters) ([]v1models.AuditLog, int64, error) {
+	if m.InjectError != nil {
+		return nil, 0, m.InjectError
+	}
+
 	if filters == nil {
 		filters = &database.AuditLogFilters{}
 	}

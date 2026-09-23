@@ -455,18 +455,21 @@ func (c *Client) spoolToDisk(payload []byte) {
 	// Generate a cryptographically secure random suffix to prevent file overwrite race conditions under high throughput
 	randomBytes := make([]byte, 4)
 	if _, err := rand.Read(randomBytes); err != nil {
-		slog.Error("Failed to generate cryptographically secure random suffix for spool file, falling back to time-derived suffix", "error", err)
-		fallbackVal := uint32(time.Now().UnixNano())
-		randomBytes[0] = byte(fallbackVal)
-		randomBytes[1] = byte(fallbackVal >> 8)
-		randomBytes[2] = byte(fallbackVal >> 16)
-		randomBytes[3] = byte(fallbackVal >> 24)
+		slog.Error("CRITICAL: Failed to generate cryptographically secure random suffix for spool file", "error", err)
+		return
 	}
 	filename := fmt.Sprintf("argus-spool-%d-%s.json", time.Now().UnixNano(), hex.EncodeToString(randomBytes))
 	path := filepath.Join(c.spoolDir, filename)
 
-	if err := os.WriteFile(path, payload, 0o640); err != nil {
-		slog.Error("CRITICAL: Failed to spool audit batch to disk — DATA LOSS",
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
+	if err != nil {
+		slog.Error("CRITICAL: Failed to create spool file — DATA LOSS", "error", err, "path", path)
+		return
+	}
+	defer f.Close()
+
+	if _, err := f.Write(payload); err != nil {
+		slog.Error("CRITICAL: Failed to write audit batch to disk — DATA LOSS",
 			"error", err, "path", path, "bytes", len(payload))
 		return
 	}

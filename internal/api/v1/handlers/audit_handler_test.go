@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -219,4 +220,53 @@ func TestAuditHandler_GetAuditLogs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuditHandler_GetAuditSummary(t *testing.T) {
+	mockRepo := v1testutil.NewMockRepository()
+
+	// Add a dummy log to the mock repository
+	now := time.Now().UTC()
+	targetID := "target-1"
+	mockRepo.Write(context.Background(), &v1models.AuditLog{
+		Timestamp:  now,
+		ActorID:    "actor-1",
+		ActorType:  "USER",
+		TargetType: "RESOURCE",
+		TargetID:   &targetID,
+		Status:     v1models.StatusSuccess,
+	})
+
+	mgr := pipeline.NewManager(nil, mockRepo)
+	service := v1services.NewAuditService(mgr, mockRepo, nil)
+	handler := NewAuditHandler(service)
+
+	t.Run("Valid request", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/audit-summary", nil)
+		w := httptest.NewRecorder()
+
+		handler.GetAuditSummary(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response v1models.AuditSummaryResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.NotEmpty(t, response.Date)
+		assert.NotEmpty(t, response.Summary)
+		// Based on the mock data, there should be at least one item in RuntimeActivity
+		assert.NotEmpty(t, response.RuntimeActivity)
+		assert.Equal(t, "actor-1", response.RuntimeActivity[0].Actor)
+		assert.Equal(t, "USER", response.RuntimeActivity[0].ActorType)
+	})
+
+	t.Run("Method not allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/audit-summary", nil)
+		w := httptest.NewRecorder()
+
+		handler.GetAuditSummary(w, req)
+
+		assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+	})
 }

@@ -96,15 +96,30 @@ func (s *PostgresSink) WriteBatch(ctx context.Context, logs []models.AuditLog) e
 		sort.Strings(actorIDs)
 
 		// 3. Acquire row-level locks sequentially in sorted order
-		for _, actorID := range actorIDs {
-			var lastLog models.AuditLog
-			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-				Where("actor_id = ?", actorID).
-				Order("created_at DESC, id DESC").
-				First(&lastLog).Error; err != nil && err != gorm.ErrRecordNotFound {
-				return err
-			}
-			actorLastHashes[actorID] = lastLog.CurrentHash
+		// Using a single query to prevent N+1 query performance issues while maintaining deterministic lock order
+		var lastLogs []models.AuditLog
+		// Explicitly add FOR UPDATE because GORM's Clauses(clause.Locking{}) is ignored with Raw queries.
+		// We can conditionally append FOR UPDATE if we are not on sqlite.
+		query := `
+			SELECT * FROM audit_logs
+			WHERE id IN (
+				SELECT id FROM (
+					SELECT id, ROW_NUMBER() OVER(PARTITION BY actor_id ORDER BY created_at DESC, id DESC) as rn
+					FROM audit_logs
+					WHERE actor_id IN ?
+				) t WHERE rn = 1
+			)
+			ORDER BY actor_id
+		`
+		if tx.Dialector.Name() != "sqlite" {
+			query += " FOR UPDATE"
+		}
+
+		if err := tx.Raw(query, actorIDs).Scan(&lastLogs).Error; err != nil {
+			return err
+		}
+		for i := range lastLogs {
+			actorLastHashes[lastLogs[i].ActorID] = lastLogs[i].CurrentHash
 		}
 
 		// 4. Compute hash chain updates using pre-locked hashes

@@ -171,17 +171,7 @@ func ConnectGormDB(config *Config) (*gorm.DB, error) {
 		}
 	} else {
 		// PostgreSQL connection
-		// Use net/url to properly encode credentials (handles special characters in passwords)
-		dsnURL := url.URL{
-			Scheme: "postgres",
-			User:   url.UserPassword(config.Username, config.Password),
-			Host:   fmt.Sprintf("%s:%s", config.Host, config.Port),
-			Path:   config.Database,
-		}
-		q := dsnURL.Query()
-		q.Set("sslmode", config.SSLMode)
-		dsnURL.RawQuery = q.Encode()
-		dsn := dsnURL.String()
+		dsn := buildPostgresDSN(config)
 
 		slog.Info("Attempting GORM PostgreSQL database connection",
 			"host", config.Host,
@@ -220,6 +210,21 @@ func ConnectGormDB(config *Config) (*gorm.DB, error) {
 	}
 	slog.Info("GORM database connection established successfully", "type", dbTypeStr)
 	return gormDB, nil
+}
+
+// buildPostgresDSN constructs a PostgreSQL connection string (DSN) from the given configuration.
+// It uses net/url to properly encode credentials and handle special characters in passwords.
+func buildPostgresDSN(config *Config) string {
+	dsnURL := url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(config.Username, config.Password),
+		Host:   fmt.Sprintf("%s:%s", config.Host, config.Port),
+		Path:   config.Database,
+	}
+	q := dsnURL.Query()
+	q.Set("sslmode", config.SSLMode)
+	dsnURL.RawQuery = q.Encode()
+	return dsnURL.String()
 }
 
 // parseIntOrDefault parses an integer from environment variable or returns default

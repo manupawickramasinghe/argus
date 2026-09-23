@@ -13,6 +13,17 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestNewPostgresSink(t *testing.T) {
+	// Setup in-memory SQLite for testing
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+
+	sink := NewPostgresSink(db)
+
+	assert.NotNil(t, sink, "Sink should not be nil")
+	assert.Equal(t, db, sink.db, "Sink should use the provided DB instance")
+}
+
 func TestPostgresSink_PartitionedHashChaining(t *testing.T) {
 	// Setup in-memory SQLite for testing
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
